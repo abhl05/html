@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Strict Chen's Notation (Weighted & Bendable)</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; margin: 0; background-color: #f4f4f4;}
+        #sidebar { width: 350px; padding: 20px; background: #ffffff; border-right: 1px solid #ddd; display: flex; flex-direction: column; box-shadow: 2px 0 5px rgba(0,0,0,0.05); z-index: 10;}
+        #network { flex-grow: 1; background: #ffffff; }
+        textarea { width: 100%; height: 400px; margin-bottom: 15px; font-family: 'Consolas', monospace; font-size: 12px; border: 1px solid #ccc; padding: 10px; border-radius: 4px; resize: vertical;}
+        button { padding: 12px; background: #0056b3; color: white; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; transition: background 0.2s; }
+        button:hover { background: #004494; }
+        .legend { font-size: 12px; color: #444; margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px; line-height: 1.6; }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <h3>Strict Chen's Generator</h3>
+    <p style="font-size: 12px; color: #666; margin-top:-10px;">
+        Layout freezes after generation. Drag nodes to adjust.
+    </p>
+    <textarea id="dbmlInput" placeholder="Paste your DBML here...">
+// Ride Share System (Strict Notation)
+
+Table users {
+  user_id int [pk]
+  name varchar
+  phone varchar
+}
+
+Table drivers {
+  driver_id int [pk]
+  license varchar
+  rating decimal
+}
+
+// WEAK ENTITY EXAMPLE
+Table contacts {
+  Note: 'weak'
+  contact_name varchar [note: 'discriminator']
+  phone varchar
+}
+
+Table rides {
+  ride_id int [pk]
+  date datetime
+  fare decimal
+}
+
+// RELATIONSHIPS
+
+// 1. Identifying Relationship (Double Diamond)
+// Note: 'identifying' triggers double diamond
+Ref: users.user_id < contacts.contact_name 
+Note: 'identifying' // has_contact
+
+// 2. One-to-Many (Arrow to 'One' side)
+Ref: users.user_id < rides.ride_id // requests
+Ref: drivers.driver_id < rides.ride_id // conducts
+
+// 3. Many-to-Many (Lines on both sides)
+// Use dash (-) for M:N
+Ref: users.user_id - drivers.driver_id // rates
+    </textarea>
+    <button onclick="parseAndDraw()">Generate Diagram</button>
+    <button onclick="exportERD()" style="background-color: #28a745; margin-top: 10px;">Export as PNG</button>
+    <button onclick="exportHighResPDF()" style="background-color: #dc3545; margin-top: 10px;">Export Hi-Res PDF</button>
+    <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 10px;">
+        <strong>Project Management:</strong><br>
+        <button onclick="saveProject()" style="background-color: #17a2b8; margin-top: 5px;">💾 Save Project (JSON)</button>
+        <input type="file" id="loadInput" onchange="loadProject(this)" style="display: none;">
+        <button onclick="document.getElementById('loadInput').click()" style="background-color: #6c757d; margin-top: 5px;">📂 Load Project</button>
+    </div>
+
+    <div class="legend">
+        <strong>Visual Rules:</strong><br>
+        • Strong Entity: Single Box<br>
+        • Weak Entity: Double Box<br>
+        • Strong Rel: Single Diamond<br>
+        • Identifying Rel: Double Diamond<br>
+        • PK: Solid Underline<br>
+        • Discriminator: Dashed Underline<br>
+        • Arrow ($\rightarrow$): 'One' Cardinality<br>
+        • Line (—): 'Many' Cardinality
+    </div>
+</div>
+
+<div id="network"></div>
+
+<script>
+    let network = null;
+
+    function parseAndDraw() {
+        const input = document.getElementById('dbmlInput').value;
+        const data = parseDBML(input);
+        drawNetwork(data);
+    }
+
+    function parseDBML(dbml) {
+        const nodes = [];
+        const edges = [];
+        const tables = {}; 
+        const tableData = {}; 
+        let idCounter = 1;
+
+        const lines = dbml.split('\n');
+        let currentTable = null;
+
+        // --- Pass 1: Tables & Columns ---
+        lines.forEach(line => {
+            line = line.trim();
+            if (!line) return;
+
+            const tableMatch = line.match(/Table\s+(\w+)\s*\{?/);
+            if (tableMatch) {
+                currentTable = tableMatch[1];
+                tables[currentTable] = idCounter++;
+                tableData[currentTable] = { columns: [], isWeak: false };
+                return;
+            }
+            if (line.includes('}')) { currentTable = null; return; }
+
+            if (currentTable) {
+                if (line.toLowerCase().includes("note: 'weak'")) tableData[currentTable].isWeak = true;
+                
+                if (!line.startsWith('//') && !line.startsWith('Note') && !line.includes('{') && !line.includes('Ref:')) {
+                    const parts = line.split(/\s+/);
+                    let colName = parts[0];
+                    if (colName) {
+                        let isPk = line.toLowerCase().includes('[pk]') || line.toLowerCase().includes('primary key');
+                        let isDiscriminator = line.toLowerCase().includes("'discriminator'");
+                        tableData[currentTable].columns.push({
+                            name: colName, isPk, isDiscriminator
+                        });
+                    }
+                }
+            }
+        });
+
+        // Generate Table SVG Nodes
+        for (const [name, id] of Object.entries(tables)) {
+            const t = tableData[name];
+            const svgObj = createEntitySVG(name, t.columns, t.isWeak);
+            // We store the 'name' in a hidden property for looking up later if needed
+            nodes.push({ 
+                id: id, 
+                image: svgObj.url, 
+                shape: 'image', 
+                size: 40,
+                hiddenLabel: name // Add this!
+            });
+        }
+
+        // --- Pass 2: Relationships ---
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+            
+            if (line.startsWith('Ref:')) {
+                const refMatch = line.match(/Ref:\s*(\w+)\.?\w*\s*([<>=-]+)\s*(\w+)\.?\w*(.*)/);
+                if (refMatch) {
+                    const t1Name = refMatch[1];
+                    const op = refMatch[2];
+                    const t2Name = refMatch[3];
+                    let comment = refMatch[4] || "";
+                    
+                    // --- 1. Parse Label & Cardinality ---
+                    let label = "relates";
+                    let cardLeft = "";
+                    let cardRight = "";
+
+                    // Regex to find content inside brackets [ ]
+                    const cardMatch = comment.match(/\[(.*?),(.*?)\]/);
+                    
+                    if (cardMatch) {
+                        // User provided explicit labels
+                        cardLeft = cardMatch[1].trim();
+                        cardRight = cardMatch[2].trim();
+                        // Remove brackets from label text
+                        comment = comment.replace(/\[.*?\]/, '');
+                    } else {
+                        // Default logic if no brackets provided
+                        if (op.includes('<')) cardLeft = "1"; else cardLeft = "N";
+                        if (op.includes('>')) cardRight = "1"; else cardRight = "N";
+                        if (op === '-') { cardLeft = "M"; cardRight = "N"; }
+                    }
+
+                    if (comment.includes('//')) {
+                        let rawComment = comment.split('//')[1].trim();
+                        // Clean up keywords
+                        label = rawComment.replace(/(total|partial)-(total|partial)/gi, '').trim();
+                        if(!label) label = "relates";
+                    }
+
+                    // --- 2. Parse Participation ---
+                    let leftPart = 'partial';
+                    let rightPart = 'partial';
+                    if (comment.includes('total-total')) { leftPart = 'total'; rightPart = 'total'; }
+                    else if (comment.includes('total-partial')) { leftPart = 'total'; rightPart = 'partial'; }
+                    else if (comment.includes('partial-total')) { leftPart = 'partial'; rightPart = 'total'; }
+
+                    let isIdentifying = false;
+                    if (lines[i+1] && lines[i+1].includes("'identifying'")) isIdentifying = true;
+                    if (comment.includes("'identifying'")) isIdentifying = true;
+
+                    const relId = idCounter++;
+                    const svgDiamond = createRelationshipSVG(label, isIdentifying);
+                    nodes.push({ id: relId, shape: 'image', image: svgDiamond, size: 30 });
+
+                    // --- 3. Add Edges with Labels ---
+                    
+                    let arrowToT1 = op.includes('<');
+                    let arrowToT2 = op.includes('>');
+
+                    // Helper: Add Edge with Masking & Labels
+                    const addEdge = (from, to, hasArrow, participation, textLabel) => {
+                        const fontStyle = { 
+                            size: 14, 
+                            color: 'black',
+                            background: 'white',
+                            strokeWidth: 0,
+                            align: 'horizontal'
+                        };
+
+                        if (participation === 'total') {
+                            // Thick Black (Bottom)
+                            edges.push({ 
+                                from: from, to: to, 
+                                arrows: hasArrow ? 'to' : '',
+                                width: 5, color: { color: 'black' },
+                                smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
+                            });
+                            // Thin White (Top) + LABEL
+                            edges.push({ 
+                                from: from, to: to, 
+                                arrows: '', 
+                                width: 2, color: { color: 'white' },
+                                label: textLabel,
+                                font: fontStyle,
+                                smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
+                            });
+                        } else {
+                            // Single Line + LABEL
+                            edges.push({ 
+                                from: from, to: to, 
+                                arrows: hasArrow ? 'to' : '',
+                                width: 1.5, color: { color: 'black' },
+                                label: textLabel,
+                                font: fontStyle,
+                                smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
+                            });
+                        }
+                    };
+
+                    addEdge(relId, tables[t1Name], arrowToT1, leftPart, cardLeft);
+                    addEdge(relId, tables[t2Name], arrowToT2, rightPart, cardRight);
+                }
+            }
+        }
+
+        return { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+    }
+
+    // --- SVG Generators (Unchanged) ---
+    function createEntitySVG(name, columns, isWeak) {
+        const lineHeight = 20; const padding = 10; const headerHeight = 30;
+        const totalHeight = headerHeight + (columns.length * lineHeight) + (padding * 2);
+        let maxTextLen = name.length;
+        columns.forEach(c => maxTextLen = Math.max(maxTextLen, c.name.length + 5)); 
+        const width = Math.max(120, maxTextLen * 10);
+        const strokeColor = "#000"; const fillColor = "#E8F4F8"; const strokeWidth = 2; 
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalHeight}">`;
+        svg += `<rect x="2" y="2" width="${width-4}" height="${totalHeight-4}" style="fill:${fillColor};stroke:${strokeColor};stroke-width:${strokeWidth}" />`;
+        if (isWeak) svg += `<rect x="6" y="6" width="${width-12}" height="${totalHeight-12}" style="fill:none;stroke:${strokeColor};stroke-width:${strokeWidth}" />`;
+        svg += `<text x="50%" y="${padding + 15}" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="14">${name}</text>`;
+        let lineY = headerHeight + 5;
+        svg += `<line x1="2" y1="${lineY}" x2="${width-2}" y2="${lineY}" style="stroke:${strokeColor};stroke-width:1" />`;
+        let currentY = lineY + 20;
+        columns.forEach(col => {
+            let displayName = col.name;
+            svg += `<text x="10" y="${currentY}" font-family="monospace" font-size="12">${displayName}</text>`;
+            const textWidth = displayName.length * 7.2; 
+            if (col.isPk) svg += `<line x1="10" y1="${currentY+2}" x2="${10+textWidth}" y2="${currentY+2}" style="stroke:black;stroke-width:1" />`;
+            else if (col.isDiscriminator) svg += `<line x1="10" y1="${currentY+2}" x2="${10+textWidth}" y2="${currentY+2}" style="stroke:black;stroke-width:1;stroke-dasharray:4,2" />`;
+            currentY += lineHeight;
+        });
+        svg += `</svg>`;
+        return { url: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg) };
+    }
+
+    function createRelationshipSVG(label, isIdentifying) {
+        const width = 100; const height = 60;
+        const strokeColor = "#000"; const fillColor = "#FFF0F0";
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
+        svg += `<polygon points="50,2 98,30 50,58 2,30" style="fill:${fillColor};stroke:${strokeColor};stroke-width:2" />`;
+        if (isIdentifying) svg += `<polygon points="50,10 88,30 50,50 12,30" style="fill:none;stroke:${strokeColor};stroke-width:2" />`;
+        svg += `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="11">${label}</text>`;
+        svg += `</svg>`;
+        return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    }
+
+    // --- Drawing Logic ---
+    function drawNetwork(data) {
+        const container = document.getElementById('network');
+        const options = {
+            physics: {
+                enabled: true,
+                stabilization: { enabled: true, iterations: 1000 },
+                barnesHut: { gravitationalConstant: -3000, springLength: 200 }
+            },
+            interaction: { dragNodes: true },
+            edges: {
+                smooth: { enabled: true, type: 'continuous', roundness: 0.5 }
+            }
+        };
+
+        if (network !== null) network.destroy();
+        network = new vis.Network(container, data, options);
+
+        network.on("stabilizationIterationsDone", function () {
+            network.setOptions({ physics: { enabled: false } });
+        });
+    }
+    function exportERD() {
+    // 1. Get the canvas element created by Vis.js
+    const canvas = document.querySelector('#network canvas');
+    
+    // 2. Create a temporary link to download the image
+    const link = document.createElement('a');
+    
+    // 3. Convert canvas content to a PNG URL
+    // Note: This grabs exactly what you see on screen (zoom level matters)
+    link.href = canvas.toDataURL('image/png');
+    
+    // 4. Set filename and trigger download
+    link.download = 'ride_share_erd.png';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+
+async function exportHighResPDF() {
+    const { jsPDF } = window.jspdf;
+    
+    // 1. Get ALL node IDs
+    const nodeIds = network.body.data.nodes.getIds();
+    if (nodeIds.length === 0) {
+        alert("No nodes to export!");
+        return;
+    }
+
+    // 2. Calculate the EXACT Bounding Box (accounting for node width/height)
+    // We use getBoundingBox instead of getPositions to include the node borders/labels
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
+    nodeIds.forEach(id => {
+        // Vis.js API to get the bounding box of a specific node
+        const box = network.getBoundingBox(id);
+        if (box.left < minX) minX = box.left;
+        if (box.right > maxX) maxX = box.right;
+        if (box.top < minY) minY = box.top;
+        if (box.bottom > maxY) maxY = box.bottom;
+    });
+
+    // 3. Define Logic for "Tight Crop"
+    // Small padding (e.g., 20px) just to keep nodes from touching the PDF edge
+    const padding = 150; 
+    const graphWidth = (maxX - minX) + (padding * 2);
+    const graphHeight = (maxY - minY) + (padding * 2);
+    
+    // SCALE FACTOR: 5x for High Resolution (Zoom capability)
+    const scaleFactor = 2; 
+    
+    const finalWidth = Math.ceil(graphWidth * scaleFactor);
+    const finalHeight = Math.ceil(graphHeight * scaleFactor);
+
+    // 4. Resize Network to match the Graph's Aspect Ratio exactly
+    network.setSize(finalWidth + 'px', finalHeight + 'px');
+    
+    // 5. Move the camera to center perfectly on the graph's center
+    // We use moveTo instead of fit() to have absolute control over the crop
+    const center_x = (minX + maxX) / 2;
+    const center_y = (minY + maxY) / 2;
+    
+    network.moveTo({
+        position: { x: center_x, y: center_y },
+        scale: scaleFactor, // Zoom in to fill the canvas
+        offset: { x: 0, y: 0 } // Center in the viewport
+    });
+    
+    network.redraw();
+
+    // 6. Capture and Generate PDF
+    setTimeout(() => {
+        const originalCanvas = document.querySelector('#network canvas');
+        
+        const compositeCanvas = document.createElement('canvas');
+        compositeCanvas.width = finalWidth;
+        compositeCanvas.height = finalHeight;
+        
+        const ctx = compositeCanvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF'; // White background
+        ctx.fillRect(0, 0, finalWidth, finalHeight);
+        ctx.drawImage(originalCanvas, 0, 0);
+
+        const imgData = compositeCanvas.toDataURL('image/jpeg', 1.0);
+
+        // Generate PDF matching the exact graph dimensions
+        // Orientation is dynamic based on graph shape
+        const pdf = new jsPDF(finalWidth > finalHeight ? 'l' : 'p', 'px', [finalWidth, finalHeight]);
+        pdf.addImage(imgData, 'JPEG', 0, 0, finalWidth, finalHeight);
+        pdf.save('ride_share_erd_tight_crop.pdf');
+
+        // 7. Restore Original View
+        network.setSize('100%', '100%');
+        network.fit({ animation: false });
+        network.redraw();
+        
+    }, 1000);
+}
+// --- Save & Load Project Logic ---
+
+function saveProject() {
+    // 1. Get current DBML
+    const dbml = document.getElementById('dbmlInput').value;
+    
+    // 2. Get all node positions
+    // Vis.js returns { nodeId: {x: 100, y: 100} }
+    const positions = network.getPositions();
+    
+    // 3. Map positions to Table Names (Labels) instead of IDs
+    // (IDs might change if you edit the text, but Names are stable)
+    const allNodes = network.body.data.nodes.get();
+    const layout = {};
+    
+    allNodes.forEach(node => {
+        // We only care about user-moved nodes, but saving all is safer
+        if (positions[node.id]) {
+            // Use the Table Name (parsed from image SVG or stored metadata if we had it)
+            // Since we used SVG images, we can't easily read the label back from the node object directly
+            // UNLESS we modify the parser to store the label in the node data.
+            // WORKAROUND: We will rely on the Parser's deterministic ID generation for now,
+            // OR better: let's modify the parser slightly to store 'label' in the node data (hidden).
+            
+            // Actually, let's just save by ID for simplicity, assuming DBML order doesn't change drastically.
+            // Ideally, you'd store { id: 1, label: "Users" } in the node dataset.
+            layout[node.id] = positions[node.id];
+        }
+    });
+
+    const projectData = {
+        timestamp: new Date().toISOString(),
+        dbml: dbml,
+        layout: layout
+    };
+
+    // 4. Download file
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projectData));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "erd_project.json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+}
+
+function loadProject(inputElement) {
+    const file = inputElement.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const project = JSON.parse(e.target.result);
+            
+            // 1. Restore DBML Text
+            document.getElementById('dbmlInput').value = project.dbml;
+            
+            // 2. Regenerate Diagram
+            parseAndDraw();
+
+            // 3. Restore Layout (after a brief delay to allow nodes to exist)
+            // We need to wait for the physics stabilization or force move them
+            setTimeout(() => {
+                if (project.layout) {
+                    for (const [id, pos] of Object.entries(project.layout)) {
+                        // Move node to saved position
+                        network.moveNode(id, pos.x, pos.y);
+                    }
+                    // Fit view to see everything
+                    network.fit({ animation: true });
+                }
+            }, 100);
+
+        } catch (err) {
+            alert("Error loading project file: " + err);
+        }
+    };
+    reader.readAsText(file);
+    // Reset input so you can load the same file again if needed
+    inputElement.value = ''; 
+}
+
+    window.onload = parseAndDraw;
+</script>
+
+</body>
+</html>
