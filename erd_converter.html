@@ -378,51 +378,93 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
 
                     // Helper: Add Edge with Masking & Labels
                     const addEdge = (from, to, hasArrow, participation, textLabel) => {
-                        const fontStyle = { 
+                        const isTotal = (participation === 'total');
+
+                        // 1. Shared Physics Settings (CRITICAL)
+                        // We MUST set the same 'roundness' for all layers so they overlap perfectly
+                        // and don't split into separate curves.
+                        const smoothConfig = { enabled: true, type: 'continuous', roundness: 0.5 };
+                        
+                        // 2. Shared Font Settings
+                        const fontConfig = { 
                             size: 14, 
-                            color: 'black',
-                            background: 'white',
-                            strokeWidth: 0,
-                            align: 'horizontal'
+                            color: 'black', 
+                            background: 'white', 
+                            strokeWidth: 0, 
+                            align: 'horizontal' 
                         };
 
-                        if (participation === 'total') {
-                            // Thick Black (Bottom)
-                            edges.push({ 
-                                from: from, to: to, 
-                                arrows: hasArrow ? { 
+                        if (isTotal) {
+                            // --- CASE A: TOTAL PARTICIPATION (Double Line) ---
+
+                            // Layer 1: Base Edge (Thick Black)
+                            // Provides the outer borders of the double line.
+                            edges.push({
+                                from: from, to: to,
+                                width: 5, 
+                                color: { color: 'black' },
+                                arrows: '', // No arrow on bottom layer
+                                smooth: smoothConfig,
+                                arrowStrikethrough: false,
+                                label: '' // No label on bottom
+                            });
+
+                            // Layer 2: Mask Edge (Thin White)
+                            // Cuts out the middle to create the "Double" effect.
+                            // Carries the LABEL so it is readable.
+                            edges.push({
+                                from: from, to: to,
+                                width: 2, 
+                                color: { color: 'white' },
+                                arrows: '', // No arrow on middle layer
+                                smooth: smoothConfig,
+                                arrowStrikethrough: false,
+                                label: textLabel, 
+                                font: fontConfig
+                            });
+
+                            // Layer 3: Arrow Carrier (Invisible Line, Black Arrow)
+                            // Sits on top of everything. The line is transparent, but the arrow is solid black.
+                            if (hasArrow) {
+                                edges.push({
+                                    from: from, to: to,
+                                    width: 1, // Minimal width
+                                    color: { opacity: 0 }, // INVISIBLE LINE
+                                    arrows: { 
                                         to: { 
                                             enabled: true, 
-                                            scaleFactor: 0.3, // Standard size arrow
+                                            scaleFactor: 1.0, 
                                             type: 'arrow',
-                                            color: { color: 'black' } // Force arrow to be black
+                                            color: '#000000' // SOLID BLACK ARROW
                                         } 
-                                    } : '',
-                                width: 5, color: { color: 'black' },
-                                smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
-                            });
-                            // Thin White (Top) + LABEL
-                            edges.push({ 
-                                from: from, to: to, 
-                                arrows: '', 
-                                width: 2, color: { color: 'white' },
-                                label: textLabel,
-                                font: fontStyle,
-                                smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
-                            });
+                                    },
+                                    smooth: smoothConfig,
+                                    arrowStrikethrough: false,
+                                    label: '' // No label
+                                });
+                            }
+
                         } else {
-                            // Single Line + LABEL
-                            edges.push({ 
-                                from: from, to: to, 
-                                arrows: hasArrow ? 'to' : '',
-                                width: 1.5, color: { color: 'black' },
+                            // --- CASE B: PARTIAL PARTICIPATION (Single Line) ---
+                            
+                            const edge = {
+                                from: from, to: to,
+                                width: 1.5,
+                                color: { color: 'black' },
+                                smooth: smoothConfig,
+                                arrowStrikethrough: false,
                                 label: textLabel,
-                                font: fontStyle,
-                                smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
-                            });
+                                font: fontConfig
+                            };
+
+                            if (hasArrow) {
+                                edge.arrows = { 
+                                    to: { enabled: true, scaleFactor: 1.0, type: 'arrow' } 
+                                };
+                            }
+                            edges.push(edge);
                         }
                     };
-
                     addEdge(relId, tables[t1Name], arrowToT1, leftPart, cardLeft);
                     addEdge(relId, tables[t2Name], arrowToT2, rightPart, cardRight);
                 }
