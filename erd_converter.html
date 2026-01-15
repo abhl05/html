@@ -23,7 +23,7 @@
         Layout freezes after generation. Drag nodes to adjust.
     </p>
     <textarea id="dbmlInput" placeholder="Paste your DBML here...">
-// Ride Share System (Strict Notation)
+<!-- // Ride Share System (Strict Notation)
 
 Table users {
   user_id int [pk]
@@ -63,7 +63,169 @@ Ref: drivers.driver_id < rides.ride_id // conducts
 
 // 3. Many-to-Many (Lines on both sides)
 // Use dash (-) for M:N
-Ref: users.user_id - drivers.driver_id // rates
+Ref: users.user_id - drivers.driver_id // rates -->
+// --- RIDE SHARE SYSTEM ERD (15 Tables) ---
+
+// 1. CORE USERS
+Table Users {
+  user_id int [pk]
+  name varchar
+  email varchar
+  rating float
+}
+
+Table Drivers {
+  driver_id int [pk]
+  user_id int
+  license_number varchar
+  status varchar // Active, Offline
+}
+
+Table Admins {
+  admin_id int [pk]
+  role varchar
+  permissions varchar
+}
+
+// 2. VEHICLE MANAGEMENT
+Table Vehicles {
+  vehicle_id int [pk]
+  plate_number varchar
+  model varchar
+  year int
+}
+
+Table VehicleTypes {
+  type_id int [pk]
+  name varchar // UberX, Black, XL
+  base_fare decimal
+}
+
+// 3. RIDE LOGIC
+Table Rides {
+  ride_id int [pk]
+  start_time datetime
+  end_time datetime
+  total_fare decimal
+}
+
+Table RideStatus {
+  status_id int [pk]
+  name varchar // Requested, Ongoing, Completed, Cancelled
+}
+
+// 4. FINANCIALS
+Table Payments {
+  payment_id int [pk]
+  amount decimal
+  method varchar // Card, Cash, Wallet
+  status varchar
+}
+
+Table Coupons {
+  coupon_id int [pk]
+  code varchar
+  discount_percent int
+  expiry_date datetime
+}
+
+// 5. WEAK ENTITIES & SUPPORT
+Table EmergencyContacts {
+  Note: 'weak'
+  contact_name varchar [note: 'discriminator']
+  phone varchar
+  relation varchar
+}
+
+Table DriverDocuments {
+  Note: 'weak'
+  doc_type varchar [note: 'discriminator']
+  image_url varchar
+  expiry_date date
+}
+
+Table ChatMessages {
+  msg_id int [pk]
+  content text
+  timestamp datetime
+}
+
+Table SupportTickets {
+  ticket_id int [pk]
+  subject varchar
+  description text
+  priority varchar
+}
+
+Table SavedPlaces {
+  place_id int [pk]
+  name varchar // Home, Work
+  latitude float
+  longitude float
+}
+
+Table Notifications {
+  notif_id int [pk]
+  content varchar
+  is_read boolean
+}
+
+
+// --- RELATIONSHIPS & CARDINALITY ---
+
+// 1. USERS & CONTACTS (Identifying Relationship)
+// A User has N contacts. Contact existence depends on User.
+// Syntax: // [LeftCard, RightCard] LeftPart-RightPart Label
+Ref: Users.user_id < EmergencyContacts.contact_name 
+Note: 'identifying' // [1..1, 0..*] total-total has_contact
+
+// 2. DRIVERS & DOCUMENTS (Identifying Relationship)
+// A Driver must have documents to exist in the system.
+Ref: Drivers.driver_id < DriverDocuments.doc_type 
+Note: 'identifying' // [1..1, 1..*] total-total has_docs
+
+// 3. DRIVERS & VEHICLES
+// Driver (Total) owns (Total) Vehicle. (Assuming 1 driver - 1 car model for simplicity here)
+Ref: Drivers.driver_id - Vehicles.vehicle_id // [1..1, 1..1] total-total drives
+
+// 4. VEHICLES & TYPES
+// Vehicle (Total) must have a Type. Type (Partial) can have many vehicles.
+Ref: Vehicles.vehicle_id > VehicleTypes.type_id // [0..*, 1..1] total-partial is_type
+
+// 5. RIDES & USERS (The Main Transaction)
+// User (Total - assuming historical) requests Ride.
+Ref: Users.user_id < Rides.ride_id // [1..1, 0..*] total-total requests
+
+// 6. RIDES & DRIVERS
+// Driver (Partial - may be idle) conducts Ride.
+Ref: Drivers.driver_id < Rides.ride_id // [0..1, 0..*] partial-total conducts
+
+// 7. RIDES & STATUS
+Ref: Rides.ride_id > RideStatus.status_id // [0..*, 1..1] total-total current_status
+
+// 8. RIDES & PAYMENTS
+// 1 Ride has exactly 1 Payment.
+Ref: Rides.ride_id - Payments.payment_id // [1..1, 1..1] total-total paid_via
+
+// 9. USERS & COUPONS (Many-to-Many)
+// User can have many coupons, Coupon can belong to many users.
+Ref: Users.user_id - Coupons.coupon_id // [0..*, 0..*] partial-partial saves
+
+// 10. RIDES & CHAT
+// Chat messages belong to a specific Ride context.
+Ref: Rides.ride_id < ChatMessages.msg_id // [1..1, 0..*] partial-total contains_chat
+
+// 11. USERS & SAVED PLACES
+Ref: Users.user_id < SavedPlaces.place_id // [1..1, 0..*] partial-total saves_location
+
+// 12. USERS & TICKETS
+Ref: Users.user_id < SupportTickets.ticket_id // [1..1, 0..*] partial-total opens_ticket
+
+// 13. USERS & NOTIFICATIONS
+Ref: Users.user_id < Notifications.notif_id // [1..1, 0..*] partial-total receives
+
+// 14. ADMIN & TICKETS (Admin manages tickets)
+Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial resolves
     </textarea>
     <button onclick="parseAndDraw()">Generate Diagram</button>
     <button onclick="exportERD()" style="background-color: #28a745; margin-top: 10px;">Export as PNG</button>
@@ -228,7 +390,14 @@ Ref: users.user_id - drivers.driver_id // rates
                             // Thick Black (Bottom)
                             edges.push({ 
                                 from: from, to: to, 
-                                arrows: hasArrow ? 'to' : '',
+                                arrows: hasArrow ? { 
+                                        to: { 
+                                            enabled: true, 
+                                            scaleFactor: 0.3, // Standard size arrow
+                                            type: 'arrow',
+                                            color: { color: 'black' } // Force arrow to be black
+                                        } 
+                                    } : '',
                                 width: 5, color: { color: 'black' },
                                 smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
                             });
