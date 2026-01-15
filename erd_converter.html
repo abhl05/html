@@ -271,11 +271,11 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
         const lines = dbml.split('\n');
         let currentTable = null;
 
-        // --- Pass 1: Tables & Columns ---
         lines.forEach(line => {
             line = line.trim();
             if (!line) return;
 
+            // 1. Table Start
             const tableMatch = line.match(/Table\s+(\w+)\s*\{?/);
             if (tableMatch) {
                 currentTable = tableMatch[1];
@@ -283,19 +283,37 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
                 tableData[currentTable] = { columns: [], isWeak: false };
                 return;
             }
-            if (line.includes('}')) { currentTable = null; return; }
+
+            // 2. Table End (FIXED: Only close if line STARTS with '}')
+            // Previous code: if (line.includes('}')) ... caused {phone} to close table
+            if (line.startsWith('}')) { 
+                currentTable = null; 
+                return; 
+            }
 
             if (currentTable) {
                 if (line.toLowerCase().includes("note: 'weak'")) tableData[currentTable].isWeak = true;
                 
-                if (!line.startsWith('//') && !line.startsWith('Note') && !line.includes('{') && !line.includes('Ref:')) {
+                // 3. Parse Columns (FIXED: Removed !line.includes('{'))
+                // Previous code skipped any line with '{', preventing {attribute}
+                if (!line.startsWith('//') && !line.startsWith('Note') && !line.includes('Ref:')) {
                     const parts = line.split(/\s+/);
                     let colName = parts[0];
+                    
                     if (colName) {
-                        let isPk = line.toLowerCase().includes('[pk]') || line.toLowerCase().includes('primary key');
-                        let isDiscriminator = line.toLowerCase().includes("'discriminator'");
+                        let lowerLine = line.toLowerCase();
+                        let isPk = lowerLine.includes('[pk]') || lowerLine.includes('primary key');
+                        let isDiscriminator = lowerLine.includes("'discriminator'");
+                        
+                        let isMultivalued = lowerLine.includes("'multivalued'");
+                        let isDerived = lowerLine.includes("'derived'");
+
                         tableData[currentTable].columns.push({
-                            name: colName, isPk, isDiscriminator
+                            name: colName, 
+                            isPk, 
+                            isDiscriminator, 
+                            isMultivalued, 
+                            isDerived
                         });
                     }
                 }
