@@ -306,13 +306,13 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
         for (const [name, id] of Object.entries(tables)) {
             const t = tableData[name];
             const svgObj = createEntitySVG(name, t.columns, t.isWeak);
-            // We store the 'name' in a hidden property for looking up later if needed
+            
             nodes.push({ 
                 id: id, 
                 image: svgObj.url, 
                 shape: 'image', 
-                size: 40,
-                hiddenLabel: name // Add this!
+                // REMOVED fixed 'size: 40' to allow automatic scaling via useImageSize
+                hiddenLabel: name 
             });
         }
 
@@ -328,22 +328,17 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
                     const t2Name = refMatch[3];
                     let comment = refMatch[4] || "";
                     
-                    // --- 1. Parse Label & Cardinality ---
                     let label = "relates";
                     let cardLeft = "";
                     let cardRight = "";
 
-                    // Regex to find content inside brackets [ ]
                     const cardMatch = comment.match(/\[(.*?),(.*?)\]/);
                     
                     if (cardMatch) {
-                        // User provided explicit labels
                         cardLeft = cardMatch[1].trim();
                         cardRight = cardMatch[2].trim();
-                        // Remove brackets from label text
                         comment = comment.replace(/\[.*?\]/, '');
                     } else {
-                        // Default logic if no brackets provided
                         if (op.includes('<')) cardLeft = "1"; else cardLeft = "N";
                         if (op.includes('>')) cardRight = "1"; else cardRight = "N";
                         if (op === '-') { cardLeft = "M"; cardRight = "N"; }
@@ -351,12 +346,10 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
 
                     if (comment.includes('//')) {
                         let rawComment = comment.split('//')[1].trim();
-                        // Clean up keywords
                         label = rawComment.replace(/(total|partial)-(total|partial)/gi, '').trim();
                         if(!label) label = "relates";
                     }
 
-                    // --- 2. Parse Participation ---
                     let leftPart = 'partial';
                     let rightPart = 'partial';
                     if (comment.includes('total-total')) { leftPart = 'total'; rightPart = 'total'; }
@@ -369,102 +362,57 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
 
                     const relId = idCounter++;
                     const svgDiamond = createRelationshipSVG(label, isIdentifying);
-                    nodes.push({ id: relId, shape: 'image', image: svgDiamond, size: 30 });
+                    nodes.push({ id: relId, shape: 'image', image: svgDiamond }); // No fixed size
 
-                    // --- 3. Add Edges with Labels ---
-                    
                     let arrowToT1 = op.includes('<');
                     let arrowToT2 = op.includes('>');
 
                     // Helper: Add Edge with Masking & Labels
                     const addEdge = (from, to, hasArrow, participation, textLabel) => {
                         const isTotal = (participation === 'total');
-
-                        // 1. Shared Physics Settings (CRITICAL)
-                        // We MUST set the same 'roundness' for all layers so they overlap perfectly
-                        // and don't split into separate curves.
                         const smoothConfig = { enabled: true, type: 'continuous', roundness: 0.5 };
-                        
-                        // 2. Shared Font Settings
-                        const fontConfig = { 
-                            size: 14, 
-                            color: 'black', 
-                            background: 'white', 
-                            strokeWidth: 0, 
-                            align: 'horizontal' 
-                        };
+                        const fontConfig = { size: 14, color: 'black', background: 'white', strokeWidth: 0, align: 'horizontal' };
 
                         if (isTotal) {
-                            // --- CASE A: TOTAL PARTICIPATION (Double Line) ---
-
                             // Layer 1: Base Edge (Thick Black)
-                            // Provides the outer borders of the double line.
                             edges.push({
                                 from: from, to: to,
-                                width: 5, 
-                                color: { color: 'black' },
-                                arrows: '', // No arrow on bottom layer
-                                smooth: smoothConfig,
-                                arrowStrikethrough: false,
-                                label: '' // No label on bottom
+                                width: 5, color: { color: 'black' },
+                                arrows: '', smooth: smoothConfig, arrowStrikethrough: false, label: '' 
                             });
 
                             // Layer 2: Mask Edge (Thin White)
-                            // Cuts out the middle to create the "Double" effect.
-                            // Carries the LABEL so it is readable.
                             edges.push({
                                 from: from, to: to,
-                                width: 2, 
-                                color: { color: 'white' },
-                                arrows: '', // No arrow on middle layer
-                                smooth: smoothConfig,
-                                arrowStrikethrough: false,
-                                label: textLabel, 
-                                font: fontConfig
+                                width: 2, color: { color: 'white' },
+                                arrows: '', smooth: smoothConfig, arrowStrikethrough: false, label: textLabel, font: fontConfig
                             });
 
                             // Layer 3: Arrow Carrier (Invisible Line, Black Arrow)
-                            // Sits on top of everything. The line is transparent, but the arrow is solid black.
                             if (hasArrow) {
                                 edges.push({
                                     from: from, to: to,
-                                    width: 1, // Minimal width
-                                    color: { opacity: 0 }, // INVISIBLE LINE
+                                    width: 1, color: { opacity: 0 }, 
                                     arrows: { 
-                                        to: { 
-                                            enabled: true, 
-                                            scaleFactor: 1.0, 
-                                            type: 'arrow',
-                                            color: '#000000' // SOLID BLACK ARROW
-                                        } 
+                                        to: { enabled: true, scaleFactor: 1.0, type: 'arrow', color: '#000000' } 
                                     },
-                                    smooth: smoothConfig,
-                                    arrowStrikethrough: false,
-                                    label: '' // No label
+                                    smooth: smoothConfig, arrowStrikethrough: false, label: ''
                                 });
                             }
-
                         } else {
-                            // --- CASE B: PARTIAL PARTICIPATION (Single Line) ---
-                            
+                            // Single Line
                             const edge = {
                                 from: from, to: to,
-                                width: 1.5,
-                                color: { color: 'black' },
-                                smooth: smoothConfig,
-                                arrowStrikethrough: false,
-                                label: textLabel,
-                                font: fontConfig
+                                width: 1.5, color: { color: 'black' },
+                                smooth: smoothConfig, arrowStrikethrough: false, label: textLabel, font: fontConfig
                             };
-
                             if (hasArrow) {
-                                edge.arrows = { 
-                                    to: { enabled: true, scaleFactor: 1.0, type: 'arrow' } 
-                                };
+                                edge.arrows = { to: { enabled: true, scaleFactor: 1.0, type: 'arrow' } };
                             }
                             edges.push(edge);
                         }
                     };
+
                     addEdge(relId, tables[t1Name], arrowToT1, leftPart, cardLeft);
                     addEdge(relId, tables[t2Name], arrowToT2, rightPart, cardRight);
                 }
@@ -474,27 +422,54 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
         return { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
     }
 
-    // --- SVG Generators (Unchanged) ---
+    // --- SVG Generator: Entities (UPDATED FOR COMPOSITE & SCALING) ---
     function createEntitySVG(name, columns, isWeak) {
-        const lineHeight = 20; const padding = 10; const headerHeight = 30;
+        const lineHeight = 20; 
+        const padding = 10; 
+        const headerHeight = 30;
+        
+        // Dynamic Height Calculation
         const totalHeight = headerHeight + (columns.length * lineHeight) + (padding * 2);
+        
         let maxTextLen = name.length;
         columns.forEach(c => maxTextLen = Math.max(maxTextLen, c.name.length + 5)); 
-        const width = Math.max(120, maxTextLen * 10);
+        const width = Math.max(140, maxTextLen * 10);
+
         const strokeColor = "#000"; const fillColor = "#E8F4F8"; const strokeWidth = 2; 
         let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalHeight}">`;
+        
+        // Box
         svg += `<rect x="2" y="2" width="${width-4}" height="${totalHeight-4}" style="fill:${fillColor};stroke:${strokeColor};stroke-width:${strokeWidth}" />`;
         if (isWeak) svg += `<rect x="6" y="6" width="${width-12}" height="${totalHeight-12}" style="fill:none;stroke:${strokeColor};stroke-width:${strokeWidth}" />`;
+        
+        // Header
         svg += `<text x="50%" y="${padding + 15}" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="14">${name}</text>`;
         let lineY = headerHeight + 5;
         svg += `<line x1="2" y1="${lineY}" x2="${width-2}" y2="${lineY}" style="stroke:${strokeColor};stroke-width:1" />`;
+
+        // Columns with Composite Logic (Simple Indentation)
         let currentY = lineY + 20;
         columns.forEach(col => {
             let displayName = col.name;
-            svg += `<text x="10" y="${currentY}" font-family="monospace" font-size="12">${displayName}</text>`;
+            let isCompositeChild = false;
+            
+            // Check for dot notation (e.g. name.first)
+            if (displayName.includes('.')) {
+                const parts = displayName.split('.');
+                displayName = parts[parts.length - 1]; 
+                isCompositeChild = true;
+            }
+
+            // Indentation: Parent = 10px, Child = 30px (Simple Space)
+            const xPos = isCompositeChild ? 30 : 10; 
+            
+            // REMOVED: Tree line drawing code
+
+            svg += `<text x="${xPos}" y="${currentY}" font-family="monospace" font-size="12">${displayName}</text>`;
             const textWidth = displayName.length * 7.2; 
-            if (col.isPk) svg += `<line x1="10" y1="${currentY+2}" x2="${10+textWidth}" y2="${currentY+2}" style="stroke:black;stroke-width:1" />`;
-            else if (col.isDiscriminator) svg += `<line x1="10" y1="${currentY+2}" x2="${10+textWidth}" y2="${currentY+2}" style="stroke:black;stroke-width:1;stroke-dasharray:4,2" />`;
+            
+            if (col.isPk) svg += `<line x1="${xPos}" y1="${currentY+2}" x2="${xPos+textWidth}" y2="${currentY+2}" style="stroke:black;stroke-width:1" />`;
+            else if (col.isDiscriminator) svg += `<line x1="${xPos}" y1="${currentY+2}" x2="${xPos+textWidth}" y2="${currentY+2}" style="stroke:black;stroke-width:1;stroke-dasharray:4,2" />`;
             currentY += lineHeight;
         });
         svg += `</svg>`;
@@ -516,6 +491,13 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
     function drawNetwork(data) {
         const container = document.getElementById('network');
         const options = {
+            nodes: {
+                // FIX: useImageSize ensures nodes grow with content and font stays readable
+                shapeProperties: {
+                    useImageSize: true,
+                    useBorderWithImage: false
+                }
+            },
             physics: {
                 enabled: true,
                 stabilization: { enabled: true, iterations: 1000 },
@@ -534,186 +516,115 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
             network.setOptions({ physics: { enabled: false } });
         });
     }
+
+    // --- Exports & Project Management (Unchanged) ---
     function exportERD() {
-    // 1. Get the canvas element created by Vis.js
-    const canvas = document.querySelector('#network canvas');
-    
-    // 2. Create a temporary link to download the image
-    const link = document.createElement('a');
-    
-    // 3. Convert canvas content to a PNG URL
-    // Note: This grabs exactly what you see on screen (zoom level matters)
-    link.href = canvas.toDataURL('image/png');
-    
-    // 4. Set filename and trigger download
-    link.download = 'ride_share_erd.png';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-
-
-async function exportHighResPDF() {
-    const { jsPDF } = window.jspdf;
-    
-    // 1. Get ALL node IDs
-    const nodeIds = network.body.data.nodes.getIds();
-    if (nodeIds.length === 0) {
-        alert("No nodes to export!");
-        return;
+        const canvas = document.querySelector('#network canvas');
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = 'ride_share_erd.png';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     }
 
-    // 2. Calculate the EXACT Bounding Box (accounting for node width/height)
-    // We use getBoundingBox instead of getPositions to include the node borders/labels
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    async function exportHighResPDF() {
+        const { jsPDF } = window.jspdf;
+        const nodeIds = network.body.data.nodes.getIds();
+        if (nodeIds.length === 0) { alert("No nodes to export!"); return; }
 
-    nodeIds.forEach(id => {
-        // Vis.js API to get the bounding box of a specific node
-        const box = network.getBoundingBox(id);
-        if (box.left < minX) minX = box.left;
-        if (box.right > maxX) maxX = box.right;
-        if (box.top < minY) minY = box.top;
-        if (box.bottom > maxY) maxY = box.bottom;
-    });
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        nodeIds.forEach(id => {
+            const box = network.getBoundingBox(id);
+            if (box.left < minX) minX = box.left;
+            if (box.right > maxX) maxX = box.right;
+            if (box.top < minY) minY = box.top;
+            if (box.bottom > maxY) maxY = box.bottom;
+        });
 
-    // 3. Define Logic for "Tight Crop"
-    // Small padding (e.g., 20px) just to keep nodes from touching the PDF edge
-    const padding = 150; 
-    const graphWidth = (maxX - minX) + (padding * 2);
-    const graphHeight = (maxY - minY) + (padding * 2);
-    
-    // SCALE FACTOR: 5x for High Resolution (Zoom capability)
-    const scaleFactor = 2; 
-    
-    const finalWidth = Math.ceil(graphWidth * scaleFactor);
-    const finalHeight = Math.ceil(graphHeight * scaleFactor);
+        const padding = 150; 
+        const graphWidth = (maxX - minX) + (padding * 2);
+        const graphHeight = (maxY - minY) + (padding * 2);
+        const scaleFactor = 2; 
+        const finalWidth = Math.ceil(graphWidth * scaleFactor);
+        const finalHeight = Math.ceil(graphHeight * scaleFactor);
 
-    // 4. Resize Network to match the Graph's Aspect Ratio exactly
-    network.setSize(finalWidth + 'px', finalHeight + 'px');
-    
-    // 5. Move the camera to center perfectly on the graph's center
-    // We use moveTo instead of fit() to have absolute control over the crop
-    const center_x = (minX + maxX) / 2;
-    const center_y = (minY + maxY) / 2;
-    
-    network.moveTo({
-        position: { x: center_x, y: center_y },
-        scale: scaleFactor, // Zoom in to fill the canvas
-        offset: { x: 0, y: 0 } // Center in the viewport
-    });
-    
-    network.redraw();
-
-    // 6. Capture and Generate PDF
-    setTimeout(() => {
-        const originalCanvas = document.querySelector('#network canvas');
+        network.setSize(finalWidth + 'px', finalHeight + 'px');
         
-        const compositeCanvas = document.createElement('canvas');
-        compositeCanvas.width = finalWidth;
-        compositeCanvas.height = finalHeight;
+        const center_x = (minX + maxX) / 2;
+        const center_y = (minY + maxY) / 2;
         
-        const ctx = compositeCanvas.getContext('2d');
-        ctx.fillStyle = '#FFFFFF'; // White background
-        ctx.fillRect(0, 0, finalWidth, finalHeight);
-        ctx.drawImage(originalCanvas, 0, 0);
-
-        const imgData = compositeCanvas.toDataURL('image/jpeg', 1.0);
-
-        // Generate PDF matching the exact graph dimensions
-        // Orientation is dynamic based on graph shape
-        const pdf = new jsPDF(finalWidth > finalHeight ? 'l' : 'p', 'px', [finalWidth, finalHeight]);
-        pdf.addImage(imgData, 'JPEG', 0, 0, finalWidth, finalHeight);
-        pdf.save('ride_share_erd_tight_crop.pdf');
-
-        // 7. Restore Original View
-        network.setSize('100%', '100%');
-        network.fit({ animation: false });
+        network.moveTo({
+            position: { x: center_x, y: center_y },
+            scale: scaleFactor, 
+            offset: { x: 0, y: 0 } 
+        });
+        
         network.redraw();
-        
-    }, 1000);
-}
-// --- Save & Load Project Logic ---
 
-function saveProject() {
-    // 1. Get current DBML
-    const dbml = document.getElementById('dbmlInput').value;
-    
-    // 2. Get all node positions
-    // Vis.js returns { nodeId: {x: 100, y: 100} }
-    const positions = network.getPositions();
-    
-    // 3. Map positions to Table Names (Labels) instead of IDs
-    // (IDs might change if you edit the text, but Names are stable)
-    const allNodes = network.body.data.nodes.get();
-    const layout = {};
-    
-    allNodes.forEach(node => {
-        // We only care about user-moved nodes, but saving all is safer
-        if (positions[node.id]) {
-            // Use the Table Name (parsed from image SVG or stored metadata if we had it)
-            // Since we used SVG images, we can't easily read the label back from the node object directly
-            // UNLESS we modify the parser to store the label in the node data.
-            // WORKAROUND: We will rely on the Parser's deterministic ID generation for now,
-            // OR better: let's modify the parser slightly to store 'label' in the node data (hidden).
-            
-            // Actually, let's just save by ID for simplicity, assuming DBML order doesn't change drastically.
-            // Ideally, you'd store { id: 1, label: "Users" } in the node dataset.
-            layout[node.id] = positions[node.id];
-        }
-    });
+        setTimeout(() => {
+            const originalCanvas = document.querySelector('#network canvas');
+            const compositeCanvas = document.createElement('canvas');
+            compositeCanvas.width = finalWidth;
+            compositeCanvas.height = finalHeight;
+            const ctx = compositeCanvas.getContext('2d');
+            ctx.fillStyle = '#FFFFFF'; 
+            ctx.fillRect(0, 0, finalWidth, finalHeight);
+            ctx.drawImage(originalCanvas, 0, 0);
 
-    const projectData = {
-        timestamp: new Date().toISOString(),
-        dbml: dbml,
-        layout: layout
-    };
+            const imgData = compositeCanvas.toDataURL('image/jpeg', 1.0);
+            const pdf = new jsPDF(finalWidth > finalHeight ? 'l' : 'p', 'px', [finalWidth, finalHeight]);
+            pdf.addImage(imgData, 'JPEG', 0, 0, finalWidth, finalHeight);
+            pdf.save('ride_share_erd_tight_crop.pdf');
 
-    // 4. Download file
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projectData));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", "erd_project.json");
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-}
+            network.setSize('100%', '100%');
+            network.fit({ animation: false });
+            network.redraw();
+        }, 1000);
+    }
 
-function loadProject(inputElement) {
-    const file = inputElement.files[0];
-    if (!file) return;
+    function saveProject() {
+        const dbml = document.getElementById('dbmlInput').value;
+        const positions = network.getPositions();
+        const allNodes = network.body.data.nodes.get();
+        const layout = {};
+        allNodes.forEach(node => {
+            if (positions[node.id]) {
+                layout[node.id] = positions[node.id];
+            }
+        });
+        const projectData = { timestamp: new Date().toISOString(), dbml: dbml, layout: layout };
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projectData));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "erd_project.json");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+    }
 
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        try {
-            const project = JSON.parse(e.target.result);
-            
-            // 1. Restore DBML Text
-            document.getElementById('dbmlInput').value = project.dbml;
-            
-            // 2. Regenerate Diagram
-            parseAndDraw();
-
-            // 3. Restore Layout (after a brief delay to allow nodes to exist)
-            // We need to wait for the physics stabilization or force move them
-            setTimeout(() => {
-                if (project.layout) {
-                    for (const [id, pos] of Object.entries(project.layout)) {
-                        // Move node to saved position
-                        network.moveNode(id, pos.x, pos.y);
+    function loadProject(inputElement) {
+        const file = inputElement.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const project = JSON.parse(e.target.result);
+                document.getElementById('dbmlInput').value = project.dbml;
+                parseAndDraw();
+                setTimeout(() => {
+                    if (project.layout) {
+                        for (const [id, pos] of Object.entries(project.layout)) {
+                            network.moveNode(id, pos.x, pos.y);
+                        }
+                        network.fit({ animation: true });
                     }
-                    // Fit view to see everything
-                    network.fit({ animation: true });
-                }
-            }, 100);
-
-        } catch (err) {
-            alert("Error loading project file: " + err);
-        }
-    };
-    reader.readAsText(file);
-    // Reset input so you can load the same file again if needed
-    inputElement.value = ''; 
-}
+                }, 100);
+            } catch (err) { alert("Error loading project file: " + err); }
+        };
+        reader.readAsText(file);
+        inputElement.value = ''; 
+    }
 
     window.onload = parseAndDraw;
 </script>
