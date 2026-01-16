@@ -257,8 +257,26 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
 
     function parseAndDraw() {
         const input = document.getElementById('dbmlInput').value;
+        
+        // Capture positions mapped by TABLE NAME (hiddenLabel), not ID
+        let savedPositions = {};
+        if (network) {
+            // Get raw positions (ID-based)
+            const positions = network.getPositions();
+            // Get all node data to find the labels
+            const allNodes = network.body.data.nodes.get();
+            
+            allNodes.forEach(node => {
+                if (positions[node.id] && node.hiddenLabel) {
+                    // Map "Users" -> {x: 100, y: 200}
+                    savedPositions[node.hiddenLabel] = positions[node.id];
+                }
+            });
+        }
+
         const data = parseDBML(input);
-        drawNetwork(data);
+        
+        drawNetwork(data, savedPositions);
     }
 
     function parseDBML(dbml) {
@@ -506,18 +524,16 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
     }
 
     // --- Drawing Logic ---
-    function drawNetwork(data) {
+    function drawNetwork(data, savedPositions = {}) {
         const container = document.getElementById('network');
+        
+        // Prepare options
         const options = {
             nodes: {
-                // FIX: useImageSize ensures nodes grow with content and font stays readable
-                shapeProperties: {
-                    useImageSize: true,
-                    useBorderWithImage: false
-                }
+                shapeProperties: { useImageSize: true, useBorderWithImage: false }
             },
             physics: {
-                enabled: true,
+                enabled: true, 
                 stabilization: { enabled: true, iterations: 1000 },
                 barnesHut: { gravitationalConstant: -3000, springLength: 200 }
             },
@@ -529,6 +545,32 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
 
         if (network !== null) network.destroy();
         network = new vis.Network(container, data, options);
+
+        // --- RESTORE POSITIONS ROBUSTLY ---
+        const newNodes = data.nodes.get();
+        const updates = [];
+
+        newNodes.forEach(node => {
+            // Check if we have a saved position for this Table Name
+            if (node.hiddenLabel && savedPositions[node.hiddenLabel]) {
+                const pos = savedPositions[node.hiddenLabel];
+                
+                // We update the node to set its position AND lock physics
+                // This ensures it stays exactly where it was.
+                updates.push({
+                    id: node.id,
+                    x: pos.x,
+                    y: pos.y,
+                    // Optional: physics: false ensures it doesn't drift during stabilization
+                    // You can remove this if you want them to "settle" again
+                    physics: false 
+                });
+            }
+        });
+
+        if (updates.length > 0) {
+            data.nodes.update(updates);
+        }
 
         network.on("stabilizationIterationsDone", function () {
             network.setOptions({ physics: { enabled: false } });
