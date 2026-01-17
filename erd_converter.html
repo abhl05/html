@@ -584,10 +584,18 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
 
     async function exportHighResPDF() {
         const { jsPDF } = window.jspdf;
+        
+        // 1. Get ALL node IDs to calculate the full graph size
         const nodeIds = network.body.data.nodes.getIds();
-        if (nodeIds.length === 0) { alert("No nodes to export!"); return; }
+        if (nodeIds.length === 0) {
+            alert("No nodes to export!");
+            return;
+        }
 
+        // 2. Calculate the EXACT Bounding Box in Vis.js internal coordinates
+        // This finds the true edges of your diagram, independent of screen zoom
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+
         nodeIds.forEach(id => {
             const box = network.getBoundingBox(id);
             if (box.left < minX) minX = box.left;
@@ -596,45 +604,79 @@ Ref: Admins.admin_id < SupportTickets.ticket_id // [0..1, 0..*] partial-partial 
             if (box.bottom > maxY) maxY = box.bottom;
         });
 
-        const padding = 150; 
-        const graphWidth = (maxX - minX) + (padding * 2);
-        const graphHeight = (maxY - minY) + (padding * 2);
-        const scaleFactor = 2; 
-        const finalWidth = Math.ceil(graphWidth * scaleFactor);
-        const finalHeight = Math.ceil(graphHeight * scaleFactor);
+        // 3. Define a Fixed Export Scale (Device Independent)
+        // We force the export to be 3000px wide. This guarantees high res on all laptops/monitors.
+        const TARGET_WIDTH = 3000; 
+        
+        const graphWidth = Math.abs(maxX - minX);
+        const graphHeight = Math.abs(maxY - minY);
+        const padding = 100; // Extra white space around edges
 
+        // Calculate Target Aspect Ratio
+        const totalGraphW = graphWidth + (padding * 2);
+        const totalGraphH = graphHeight + (padding * 2);
+        const aspectRatio = totalGraphH / totalGraphW;
+
+        // Calculate Final Pixel Dimensions
+        const finalWidth = TARGET_WIDTH;
+        const finalHeight = Math.round(TARGET_WIDTH * aspectRatio);
+        
+        // 4. Temporarily Resize Network Container
+        // We save the original CSS to restore it later
+        const container = document.getElementById('network');
+        const originalStyleWidth = container.style.width;
+        const originalStyleHeight = container.style.height;
+        
+        // Force container to the Target Pixel Size
         network.setSize(finalWidth + 'px', finalHeight + 'px');
         
-        const center_x = (minX + maxX) / 2;
-        const center_y = (minY + maxY) / 2;
-        
-        network.moveTo({
-            position: { x: center_x, y: center_y },
-            scale: scaleFactor, 
-            offset: { x: 0, y: 0 } 
+        // 5. Center the Camera
+        // Fit the entire graph perfectly into this new 3000px canvas
+        network.fit({ 
+            nodes: nodeIds,
+            animation: false 
         });
         
+        // Force a redraw so Vis.js renders at this high resolution
         network.redraw();
 
+        // 6. Wait for Renderer (Safe delay to ensure drawing finishes)
         setTimeout(() => {
-            const originalCanvas = document.querySelector('#network canvas');
-            const compositeCanvas = document.createElement('canvas');
-            compositeCanvas.width = finalWidth;
-            compositeCanvas.height = finalHeight;
-            const ctx = compositeCanvas.getContext('2d');
-            ctx.fillStyle = '#FFFFFF'; 
-            ctx.fillRect(0, 0, finalWidth, finalHeight);
-            ctx.drawImage(originalCanvas, 0, 0);
+            try {
+                // Get the raw canvas from Vis.js
+                const originalCanvas = container.querySelector('canvas');
+                
+                // Create a white background composite (otherwise PDF background is black/transparent)
+                const compositeCanvas = document.createElement('canvas');
+                compositeCanvas.width = originalCanvas.width;
+                compositeCanvas.height = originalCanvas.height;
+                
+                const ctx = compositeCanvas.getContext('2d');
+                ctx.fillStyle = '#FFFFFF'; 
+                ctx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+                ctx.drawImage(originalCanvas, 0, 0);
 
-            const imgData = compositeCanvas.toDataURL('image/jpeg', 1.0);
-            const pdf = new jsPDF(finalWidth > finalHeight ? 'l' : 'p', 'px', [finalWidth, finalHeight]);
-            pdf.addImage(imgData, 'JPEG', 0, 0, finalWidth, finalHeight);
-            pdf.save('ride_share_erd_tight_crop.pdf');
+                // Export to PDF
+                const imgData = compositeCanvas.toDataURL('image/jpeg', 0.95);
+                
+                // Choose orientation based on dimensions
+                const orientation = finalWidth > finalHeight ? 'l' : 'p';
+                const pdf = new jsPDF(orientation, 'px', [finalWidth, finalHeight]);
+                
+                pdf.addImage(imgData, 'JPEG', 0, 0, finalWidth, finalHeight);
+                pdf.save('ride_share_erd_universal.pdf');
 
-            network.setSize('100%', '100%');
-            network.fit({ animation: false });
-            network.redraw();
-        }, 1000);
+            } catch (e) {
+                console.error("Export failed:", e);
+                alert("Export failed. See console for details.");
+            } finally {
+                // 7. Restore Original State
+                // Reset size back to 100% (or whatever it was)
+                network.setSize('100%', '100%');
+                network.fit({ animation: false });
+                network.redraw();
+            }
+        }, 1000); // 1 second delay
     }
 
     function saveProject() {
